@@ -2081,3 +2081,79 @@ Record bigstep_sound (B: bigstep_semantics) (L: semantics) : Prop :=
       exists s1, initial_state L s1 /\ forever (step L) (globalenv L) s1 T
 }.
 
+Section FSIM_TO_BSIM.
+
+Context L1 L2 index order match_states (BS: bsim_properties L1 L2 index order match_states).
+Hypothesis L2_receptive: receptive L2.
+Hypothesis L1_determinate: determinate L1.
+
+(** Orders *)
+
+Inductive b2f_index : Type :=
+  | B2FI_before (n: nat)
+  | B2FI_after (n: nat).
+
+Inductive b2f_order: b2f_index -> b2f_index -> Prop :=
+  | b2f_order_before: forall n n',
+      (n' < n)%nat ->
+      b2f_order (B2FI_before n') (B2FI_before n)
+  | b2f_order_after: forall n n',
+      (n' < n)%nat ->
+      b2f_order (B2FI_after n') (B2FI_after n)
+  | b2f_order_switch: forall n n',
+      b2f_order (B2FI_before n') (B2FI_after n).
+
+Lemma wf_b2f_order:
+  well_founded b2f_order.
+Proof.
+  assert (ACC1: forall n, Acc b2f_order (B2FI_before n)).
+    intros n0; pattern n0; apply lt_wf_ind; intros.
+    constructor; intros. inv H0. auto.
+  assert (ACC2: forall n, Acc b2f_order (B2FI_after n)).
+    intros n0; pattern n0; apply lt_wf_ind; intros.
+    constructor; intros. inv H0. auto. auto.
+  red; intros. destruct a; auto.
+Qed.
+
+(** Constructing the backward simulation *)
+
+Inductive b2f_match_states: b2f_index -> state L1 -> state L2 -> Prop :=
+  | b2f_match_at: forall i s1 s2,
+      safe L1 s1 ->
+      match_states i s1 s2 ->
+      b2f_match_states (B2FI_after O) s1 s2
+  | b2f_match_before: forall s1 t s1' s2b s2 n s2a i,
+      safe L1 s1 ->
+      Step L1 s1 t s1' ->  t <> E0 ->
+      Star L2 s2b E0 s2 ->
+      starN (step L2) (globalenv L2) n s2 t s2a ->
+      match_states i s1 s2b ->
+      b2f_match_states (B2FI_before n) s1 s2
+  | b2f_match_after: forall n s2 s2a s1 i,
+      safe L1 s1 ->
+      starN (step L2) (globalenv L2) (S n) s2 E0 s2a ->
+      match_states i s1 s2a ->
+      b2f_match_states (B2FI_after (S n)) s1 s2
+  | b2f_match_final: forall n s1 s2 s2a r,
+      safe L1 s1 ->
+      final_state L1 s1 r ->
+      starN (step L2) (globalenv L2) n s2 E0 s2a ->
+      final_state L2 s2a r ->
+      b2f_match_states (B2FI_before n) s1 s2.
+
+Require Import Classical.
+
+Lemma b2f_simulation_step:
+  forall s1 t s1', Step L1 s1 t s1' ->
+  forall i s2, b2f_match_states i s1 s2 ->
+  exists i', exists s2',
+    (Plus L2 s2 t s2' \/ (Star L2 s2 t s2' /\ b2f_order i' i))
+     /\ b2f_match_states i' s1' s2'.
+Proof.
+  intros s1 t s1' STEP1 i s2 MATCH.
+  inv MATCH.
+  - (* match *)
+    exploit bsim_progress; eauto. intros. admit.
+    + 
+    
+    
