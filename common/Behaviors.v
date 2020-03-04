@@ -292,7 +292,9 @@ Proof.
 - (* termination *)
   exploit simulation_star; eauto. intros [i' [s2' [A B]]].
   exists (Terminates t r); split.
-  econstructor; eauto. eapply fsim_match_final_states; eauto.
+  exploit fsim_match_final_states; eauto. intros (s2'0 & STAR & FINAL).
+  exploit star_trans. eapply A. eauto. eauto. traceEq. intros.
+  econstructor; eauto.
   apply behavior_improves_refl.
 - (* silent divergence *)
   exploit simulation_star; eauto. intros [i' [s2' [A B]]].
@@ -566,7 +568,8 @@ Proof.
   apply forward_simulation_plus with ms; intros.
   auto.
   exists (E0,s1); split. simpl; auto. red; auto.
-  red in H. subst s2. simpl; auto.
+  red in H. subst s2. exists (E0,s1); split.
+  eapply star_refl. simpl. split; auto.
   red in H0. subst s2. exists (E0,s1'); split.
   apply step_atomic_plus; auto. red; auto.
 Qed.
