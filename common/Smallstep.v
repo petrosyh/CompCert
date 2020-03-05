@@ -2115,33 +2115,63 @@ Proof.
   red; intros. destruct a; auto.
 Qed.
 
+Lemma star_unsafe:
+  forall s1 s1', Star L1 s1 E0 s1' -> ~ safe L1 s1 -> ~ safe L1 s1'.
+Proof.
+  intros. unfold not in *. intros. eapply H0.
+  unfold safe. intros.
+  exploit star_determinacy. eauto. eapply H. eapply H2.
+  intros [A | A]; cycle 1.
+  - exploit star_inv. eauto. intros [(B & C) | B]; subst; eauto.
+    inv B. eauto.
+  - exploit star_safe; eauto. eapply star_refl.
+Qed.
+
+Definition unsafe (L: semantics) (s: state L) : Prop :=
+  ~ (exists r, final_state L s r)
+  /\ ~ (exists t, exists s', Step L s t s').
+
 (** Constructing the backward simulation *)
 
 Inductive b2f_match_states: b2f_index -> state L1 -> state L2 -> Prop :=
   | b2f_match_at: forall i s1 s2,
-      safe L1 s1 ->
       match_states i s1 s2 ->
       b2f_match_states (B2FI_after O) s1 s2
   | b2f_match_before: forall s1 t s1' s2b s2 n s2a i,
-      safe L1 s1 ->
       Step L1 s1 t s1' ->  t <> E0 ->
       Star L2 s2b E0 s2 ->
       starN (step L2) (globalenv L2) n s2 t s2a ->
       match_states i s1 s2b ->
       b2f_match_states (B2FI_before n) s1 s2
   | b2f_match_after: forall n s2 s2a s1 i,
-      safe L1 s1 ->
       starN (step L2) (globalenv L2) (S n) s2 E0 s2a ->
       match_states i s1 s2a ->
       b2f_match_states (B2FI_after (S n)) s1 s2
-  | b2f_match_final: forall n s1 s2 s2a r,
-      safe L1 s1 ->
-      final_state L1 s1 r ->
-      starN (step L2) (globalenv L2) n s2 E0 s2a ->
-      final_state L2 s2a r ->
+  | b2f_match_unsafe: forall n s1 s1a s2,
+      starN (step L1) (globalenv L1) n s1 E0 s1a ->
+      unsafe L1 s1a ->
+      b2f_match_states (B2FI_before n) s1 s2
+  | b2f_match_final: forall n s1 s2 s1a r,
+      final_state L2 s2 r ->
+      starN (step L1) (globalenv L1) n s1 E0 s1a ->
+      final_state L1 s1a r ->
       b2f_match_states (B2FI_before n) s1 s2.
 
 Require Import Classical.
+
+Lemma unsafe_unsafe:
+  forall s1,
+    ~ safe L1 s1 ->
+    exists n s1', starN (step L1) (globalenv L1) n s1 E0 s1' /\ unsafe L1 s1'.
+Proof.
+  intros s1 UNSAFE.
+  unfold safe in UNSAFE. eapply not_all_ex_not in UNSAFE.
+  destruct UNSAFE as [s1'' UNSAFE].
+  eapply imply_to_and in UNSAFE. inv UNSAFE.
+  eapply not_or_and in H0. inv H0.
+  exploit star_starN; eauto. intros (n & STARN).
+  exists n, s1''. unfold unsafe. repeat (split; auto).
+Qed.
 
 Lemma b2f_simulation_step:
   forall s1 t s1', Step L1 s1 t s1' ->
@@ -2153,7 +2183,71 @@ Proof.
   intros s1 t s1' STEP1 i s2 MATCH.
   inv MATCH.
   - (* match *)
-    exploit bsim_progress; eauto. intros. admit.
-    + 
-    
+    destruct (classic (safe L1 s1)) as [SAFE|UNSAFE].
+    + exploit bsim_progress; eauto.
+      intros [[r A] | [t' [s2' A]]].
+      do 2 eexists. split. right. split. admit. econstructor 3.
+      econstructor 5. eauto. admit. admit.
+      admit.
+      admit
+      admit.
+    + assert (t = E0).
+      { unfold safe in *. eapply not_all_ex_not in UNSAFE.
+        destruct UNSAFE as [s1'' UNSAFE].
+        eapply imply_to_and in UNSAFE. inv UNSAFE.
+        eapply not_or_and in H1. inv H1.
+        exploit star_inv; eauto. intros [(A & B) | A]; subst; auto.
+        exfalso. eapply H3. eauto.
+        inv A. exploit Eapp_E0_inv; eauto. intros. inv H6; subst.
+        exploit sd_determ_3. eauto. eapply STEP1. eauto. intros.
+        inv H6; subst; auto. }
+      subst.
+      assert (~ safe L1 s1').
+      { eapply star_unsafe. eapply star_one. eauto. eauto. }
+      exploit unsafe_unsafe; eauto. intros (n & s1'' & STARN & UNSAFE').
+      do 2 eexists. split. right. split. eapply star_refl.
+      econstructor 3. econstructor 4; eauto.
+  - (* before *)
+    admit.
+  - (* after *)
+    admit.
+  - (* unsafe *)
+    destruct n.
+    + inv H. unfold unsafe in H0. inv H0. exfalso. eapply H1. eauto.
+    + assert (t = E0). admit. subst.
+      do 2 eexists. split. right. split. eapply star_refl.
+      econstructor; eauto.
+      econstructor 4; eauto. admit.
+  - (* final *)
+    admit.
+Admitted.
+
+End FSIM_TO_BSIM.
+
+(** The backward simulation *)
+
+Lemma backward_to_forward_simulation:
+  forall L1 L2,
+  backward_simulation L1 L2 -> receptive L2 -> determinate L1 ->
+  forward_simulation L1 L2.
+Proof.
+  intros L1 L2 BS L2_receptive L1_determinate.
+  destruct BS as [index order match_states BS].
+  apply Forward_simulation with b2f_order (b2f_match_states L1 L2 match_states); constructor.
+- (* well founded *)
+  apply wf_b2f_order.
+- (* initial states *)
+  intros.
+  exploit (bsim_initial_states_exist BS); eauto. intros (s2 & INIT).
+  exploit (bsim_match_initial_states BS); eauto. intros [i [s1' [A B]]].
+  exploit sd_initial_determ. eauto. eapply H. eauto. intros; subst.
+  eexists. exists s2; auto. split; eauto. econstructor. eauto.
+- (* final states *)
+  admit.
+- (* simulation *)
+  eapply b2f_simulation_step; eauto.
+- (* symbols preserved *)
+  exact (bsim_public_preserved BS).
+Admitted.
+
     
