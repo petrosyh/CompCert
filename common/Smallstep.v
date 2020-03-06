@@ -2087,6 +2087,40 @@ Context L1 L2 index order match_states (BS: bsim_properties L1 L2 index order ma
 Hypothesis L2_receptive: receptive L2.
 Hypothesis L1_determinate: determinate L1.
 
+(** Exploiting Backward simulation *)
+
+Inductive b2f_transitions: state L1 -> state L2 -> Prop :=
+  | b2f_trans_final: forall s1 s2 s2' s1' r,
+      Star L2 s2 E0 s2' ->
+      final_state L2 s2' r ->
+      Star L1 s1 E0 s1' ->
+      final_state L1 s1' r ->
+      b2f_transitions s1 s2
+  | b2f_trans_step: forall s1 s2 s2' t s2'' s1' i' i'',
+      Star L2 s2 E0 s2' ->
+      Step L2 s2' t s2'' ->
+      Plus L1 s1 t s1' ->
+      match_states i' s1 s2' ->
+      match_states i'' s1' s2'' ->
+      b2f_transitions s1 s2.
+
+Lemma b2f_progress:
+  forall i s1 s2, match_states i s1 s2 -> safe L1 s1 -> b2f_transitions s1 s2.
+Proof.
+  intros i0; pattern i0. apply well_founded_ind with (R := order).
+  eapply bsim_order_wf; eauto.
+  intros i REC s1 s2 MATCH SAFE.
+  exploit bsim_progress; eauto. intros [[r' FINAL2] | [t [s2' STEP2]]].
+- exploit (bsim_match_final_states BS); eauto. intros (s1' & STAR & FINAL1).
+  eapply b2f_trans_final; eauto. eapply star_refl.
+- exploit (bsim_simulation' BS); eauto.
+  intros [(i' & s1'0 & PLUS2 & MATCH') | (i' & ORD & TRC & MATCH')].
+  + eapply b2f_trans_step; eauto. apply star_refl.
+  + subst. exploit REC; eauto. intros TRANS; inv TRANS.
+    * eapply b2f_trans_final; eauto. eapply star_left; eauto.
+    * eapply b2f_trans_step; eauto. eapply star_left; eauto.
+Qed.
+
 (** Orders *)
 
 Inductive b2f_index : Type :=
@@ -2137,15 +2171,15 @@ Inductive b2f_match_states: b2f_index -> state L1 -> state L2 -> Prop :=
   | b2f_match_at: forall i s1 s2,
       match_states i s1 s2 ->
       b2f_match_states (B2FI_after O) s1 s2
-  | b2f_match_before: forall s1 t s1' s2b s2 n s2a i,
-      Step L1 s1 t s1' ->  t <> E0 ->
-      Star L2 s2b E0 s2 ->
-      starN (step L2) (globalenv L2) n s2 t s2a ->
-      match_states i s1 s2b ->
+  | b2f_match_before: forall s2 t s2' s1b s1 n s1a i,
+      Step L2 s2 t s2' ->  t <> E0 ->
+      Star L1 s1b E0 s1 ->
+      starN (step L1) (globalenv L1) n s1 t s1a ->
+      match_states i s1b s2 ->
       b2f_match_states (B2FI_before n) s1 s2
-  | b2f_match_after: forall n s2 s2a s1 i,
-      starN (step L2) (globalenv L2) (S n) s2 E0 s2a ->
-      match_states i s1 s2a ->
+  | b2f_match_after: forall n s1 s1a s2 i,
+      starN (step L1) (globalenv L1) (S n) s1 E0 s1a ->
+      match_states i s1a s2 ->
       b2f_match_states (B2FI_after (S n)) s1 s2
   | b2f_match_unsafe: forall n s1 s1a s2,
       starN (step L1) (globalenv L1) n s1 E0 s1a ->
@@ -2156,6 +2190,17 @@ Inductive b2f_match_states: b2f_index -> state L1 -> state L2 -> Prop :=
       starN (step L1) (globalenv L1) n s1 E0 s1a ->
       final_state L1 s1a r ->
       b2f_match_states (B2FI_before n) s1 s2.
+
+Remark b2f_match_after':
+  forall n s1 s1a s2 i,
+  starN (step L1) (globalenv L1) n s1 E0 s1a ->
+  match_states i s1a s2 ->
+  b2f_match_states (B2FI_after n) s1 s2.
+Proof.
+  intros. inv H.
+  econstructor; eauto.
+  econstructor; eauto. econstructor; eauto.
+Qed.
 
 Require Import Classical.
 
@@ -2173,6 +2218,51 @@ Proof.
   exists n, s1''. unfold unsafe. repeat (split; auto).
 Qed.
 
+Lemma b2f_determinacy_inv:
+  forall s1 t' s1' t'' s1'',
+  Step L1 s1 t' s1' -> Step L1 s1 t'' s1'' ->
+  (t' = E0 /\ t'' = E0 /\ s1' = s1'')
+  \/ (t' <> E0 /\ t'' <> E0 /\ match_traces (symbolenv L2) t' t'').
+Proof.
+  intros.
+  assert (match_traces (symbolenv L1) t' t'').
+    eapply sd_determ_1; eauto.
+  destruct (silent_or_not_silent t').
+  subst. inv H1.
+  left; intuition. eapply sd_determ_2; eauto.
+  destruct (silent_or_not_silent t'').
+  subst. inv H1. elim H2; auto.
+  right; intuition.
+  eapply match_traces_preserved with (ge1 := (symbolenv L1)); auto.
+  intros; apply (bsim_public_preserved BS).
+Qed.
+
+Lemma b2f_determinacy_star:
+  forall s s1, Star L1 s E0 s1 ->
+  forall t s2 s3,
+  Step L1 s1 t s2 -> t <> E0 ->
+  Star L1 s t s3 ->
+  Star L1 s1 t s3.
+Proof.
+  intros s0 s01 ST0. pattern s0, s01. eapply star_E0_ind; eauto.
+  intros. inv H3. congruence.
+  exploit b2f_determinacy_inv. eexact H. eexact H4.
+  intros [[EQ1 [EQ2 EQ3]] | [NEQ1 [NEQ2 MT]]].
+  subst. simpl in *. eauto.
+  congruence.
+Qed.
+
+Lemma bsim_simulation_not_E0:
+  forall s2 t s2', Step L2 s2 t s2' -> t <> E0 ->
+  forall i s1 (SAFE: safe L1 s1), match_states i s1 s2 ->
+  exists i', exists s1', Plus L1 s1 t s1' /\ match_states i' s1' s2'.
+Proof.
+  intros. exploit (bsim_simulation BS); eauto. intros [i' [s1' [A B]]].
+  exists i'; exists s1'; split; auto.
+  destruct A. auto. destruct H2. exploit star_inv; eauto. intros [[EQ1 EQ2] | P]; auto.
+  congruence.
+Qed.
+
 Lemma b2f_simulation_step:
   forall s1 t s1', Step L1 s1 t s1' ->
   forall i s2, b2f_match_states i s1 s2 ->
@@ -2184,14 +2274,45 @@ Proof.
   inv MATCH.
   - (* match *)
     destruct (classic (safe L1 s1)) as [SAFE|UNSAFE].
-    + exploit bsim_progress; eauto.
-      intros [[r A] | [t' [s2' A]]].
-      do 2 eexists. split. right. split. admit. econstructor 3.
-      econstructor 5. eauto. admit. admit.
-      admit.
-      admit
-      admit.
-    + assert (t = E0).
+    + (* safe source state *)
+      exploit b2f_progress; eauto. intros TRANS. inv TRANS.
+      * admit. (* similar to f2b *)
+      * inv H2.
+        exploit b2f_determinacy_inv. eexact H5. eexact STEP1.
+        intros [[EQ1 [EQ2 EQ3]] | [NOT1 [NOT2 MT]]].
+        --
+          destruct (silent_or_not_silent t2).
+          (* 1.2.1.1  L2 makes a silent transition too: perform transition now and go to "after" state *)
+          subst. simpl in *. destruct (star_starN H6) as [n STEPS2].
+          exists (B2FI_after n); exists s2''; split.
+          left. eapply plus_right; eauto.
+          eapply b2f_match_after'; eauto.
+          (* 1.2.1.2 L2 makes a non-silent transition: keep it for later and go to "before" state *)
+          subst. simpl in *. destruct (star_starN H6) as [n STEPS2].
+          exists (B2FI_before n); exists s2'; split.
+          right; split. auto. constructor.
+          econstructor. eauto. auto. apply star_one; eauto. eauto. eauto.
+        --
+          (* 1.2.2 L1 makes a non-silent transition, and so does L1 *)
+          exploit not_silent_length. eapply (sr_traces L2_receptive); eauto. intros [EQ | EQ].
+          congruence.
+          subst t2. rewrite E0_right in H1.
+          (* Use receptiveness to equate the traces *)
+          exploit (sr_receptive L2_receptive); eauto. intros [s2''' STEP2].
+          exploit bsim_simulation_not_E0. eexact STEP2. auto. eauto. eauto.
+          intros [i''' [s1''' [P Q]]]. inv P.
+          (* Exploit determinacy *)
+          exploit not_silent_length. eapply (sr_traces L2_receptive); eauto. intros [EQ | EQ].
+          subst t0. simpl in *. exploit sd_determ_1. eauto. eexact STEP1. eexact H2.
+          intros. elim NOT2. inv H8. auto.
+          subst t2. rewrite E0_right in *.
+          assert (s4 = s1'). eapply sd_determ_2; eauto. subst s4.
+          (* Perform transition now and go to "after" state *)
+          destruct (star_starN H7) as [n STEPS1]. exists (B2FI_after n); exists s2'''; split.
+          left. eapply plus_right; eauto.
+          eapply b2f_match_after'; eauto.
+    + (* unsafe source code *)
+      assert (t = E0).
       { unfold safe in *. eapply not_all_ex_not in UNSAFE.
         destruct UNSAFE as [s1'' UNSAFE].
         eapply imply_to_and in UNSAFE. inv UNSAFE.
@@ -2208,9 +2329,47 @@ Proof.
       do 2 eexists. split. right. split. eapply star_refl.
       econstructor 3. econstructor 4; eauto.
   - (* before *)
-    admit.
+    inv H2. congruence.
+    exploit b2f_determinacy_inv. eexact H4. eexact STEP1.
+    intros [[EQ1 [EQ2 EQ3]] | [NOT1 [NOT2 MT]]].
+    + (* 2.1 L1 makes a silent transition: remain in "before" state *)
+      subst. simpl in *. exists (B2FI_before n0); exists s2; split.
+      right; split. apply star_refl. constructor. omega.
+      econstructor; eauto. eapply star_right; eauto.
+    + (* 2.2 L1 make a non-silent transition *)
+      exploit not_silent_length. eapply (sr_traces L2_receptive); eauto. intros [EQ | EQ].
+      congruence.
+      subst. rewrite E0_right in *.
+      (* Use receptiveness to equate the traces *)
+      exploit (sr_receptive L2_receptive); eauto. intros [s2''' STEP2].
+      assert (SAFE1: safe L1 s1).
+      { unfold safe. intros.
+        exploit star_inv; eauto. intros [(A & B) | A]; subst; cycle 1; eauto.
+        inv A. exploit Eapp_E0_inv; eauto. intros. inv H9; subst.
+        exploit sd_determ_3. eauto. eapply STEP1. eauto. intros. inv H9; contradiction. }
+      assert (SAFE1': safe L1 s1b). admit.
+      exploit bsim_simulation_not_E0. eexact STEP2. auto. eauto. eauto.
+      intros [i''' [s1''' [P Q]]].
+      (* Exploit determinacy *)
+      exploit b2f_determinacy_star. eauto. eexact STEP1. auto. apply plus_star; eauto.
+      intro R. inv R. congruence.
+      exploit not_silent_length. eapply (sr_traces L2_receptive); eauto. intros [EQ | EQ].
+      subst. simpl in *. exploit sd_determ_1. eauto. eexact STEP1. eexact H2.
+      intros. elim NOT2. inv H7; auto.
+      subst. rewrite E0_right in *.
+      assert (s3 = s1'). eapply sd_determ_2; eauto. subst s3.
+      (* Perform transition now and go to "after" state *)
+      destruct (star_starN H6) as [n STEPS1]. exists (B2FI_after n); exists s2'''; split.
+      left. apply plus_one; auto.
+      eapply b2f_match_after'; eauto.
   - (* after *)
-    admit.
+    inv H. exploit Eapp_E0_inv; eauto. intros [EQ1 EQ2]; subst.
+    exploit b2f_determinacy_inv. eexact H2. eexact STEP1.
+    intros [[EQ1 [EQ2 EQ3]] | [NOT1 [NOT2 MT]]].
+    subst. exists (B2FI_after n); exists s2; split.
+    right; split. apply star_refl. constructor; omega.
+    eapply b2f_match_after'; eauto.
+    congruence.
   - (* unsafe *)
     destruct n.
     + inv H. unfold unsafe in H0. inv H0. exfalso. eapply H1. eauto.
@@ -2219,7 +2378,13 @@ Proof.
       econstructor; eauto.
       econstructor 4; eauto. admit.
   - (* final *)
-    admit.
+    destruct n.
+    + inv H0.
+      exploit (sd_final_nostep L1_determinate); eauto. contradiction.
+    + inv H0. exploit Eapp_E0_inv; eauto. intros. inv H0; subst.
+      exploit sd_determ_3. eauto. eapply STEP1. eauto. intros. inv H0; subst.
+      do 2 eexists. split. right. split. eapply star_refl. econstructor 1. instantiate (1:=n). eauto.
+      econstructor 5; eauto.
 Admitted.
 
 End FSIM_TO_BSIM.
