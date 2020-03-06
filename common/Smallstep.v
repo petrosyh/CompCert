@@ -2149,16 +2149,22 @@ Proof.
   red; intros. destruct a; auto.
 Qed.
 
-Lemma star_unsafe:
-  forall s1 s1', Star L1 s1 E0 s1' -> ~ safe L1 s1 -> ~ safe L1 s1'.
+Lemma safe_star:
+  forall s1 s1', Star L1 s1 E0 s1' -> safe L1 s1' -> safe L1 s1.
 Proof.
-  intros. unfold not in *. intros. eapply H0.
+  intros.
   unfold safe. intros.
-  exploit star_determinacy. eauto. eapply H. eapply H2.
+  exploit star_determinacy. eauto. eapply H. eapply H1.
   intros [A | A]; cycle 1.
   - exploit star_inv. eauto. intros [(B & C) | B]; subst; eauto.
     inv B. eauto.
   - exploit star_safe; eauto. eapply star_refl.
+Qed.
+
+Lemma star_unsafe:
+  forall s1 s1', Star L1 s1 E0 s1' -> ~ safe L1 s1 -> ~ safe L1 s1'.
+Proof.
+  intros. unfold not in *. intros. eapply H0. eapply safe_star; eauto.
 Qed.
 
 Definition unsafe (L: semantics) (s: state L) : Prop :=
@@ -2276,7 +2282,13 @@ Proof.
     destruct (classic (safe L1 s1)) as [SAFE|UNSAFE].
     + (* safe source state *)
       exploit b2f_progress; eauto. intros TRANS. inv TRANS.
-      * admit. (* similar to f2b *)
+      * exploit star_inv; eauto. intros [(A & B) | A]; subst.
+        { exploit sd_final_nostep; eauto. contradiction. }
+        inversion A; subst. exploit Eapp_E0_inv; eauto. intros. inv H7; subst.
+        exploit sd_determ_3. eauto. eapply STEP1. eauto. intros. inv H7; subst.
+        exploit star_starN; eauto. intros (n & STARN).
+        do 2 eexists. split. right. split; eauto. econstructor 3.
+        econstructor 5; eauto.
       * inv H2.
         exploit b2f_determinacy_inv. eexact H5. eexact STEP1.
         intros [[EQ1 [EQ2 EQ3]] | [NOT1 [NOT2 MT]]].
@@ -2347,7 +2359,8 @@ Proof.
         exploit star_inv; eauto. intros [(A & B) | A]; subst; cycle 1; eauto.
         inv A. exploit Eapp_E0_inv; eauto. intros. inv H9; subst.
         exploit sd_determ_3. eauto. eapply STEP1. eauto. intros. inv H9; contradiction. }
-      assert (SAFE1': safe L1 s1b). admit.
+      assert (SAFE1': safe L1 s1b).
+      { eapply safe_star. eapply H1. eauto. }
       exploit bsim_simulation_not_E0. eexact STEP2. auto. eauto. eauto.
       intros [i''' [s1''' [P Q]]].
       (* Exploit determinacy *)
@@ -2373,10 +2386,12 @@ Proof.
   - (* unsafe *)
     destruct n.
     + inv H. unfold unsafe in H0. inv H0. exfalso. eapply H1. eauto.
-    + assert (t = E0). admit. subst.
+    + inv H. exploit Eapp_E0_inv; eauto. intros. inv H; subst.
+      exploit sd_determ_3. eauto. eapply STEP1. eauto.
+      intros. inv H; auto.
       do 2 eexists. split. right. split. eapply star_refl.
       econstructor; eauto.
-      econstructor 4; eauto. admit.
+      econstructor 4; eauto.
   - (* final *)
     destruct n.
     + inv H0.
@@ -2385,7 +2400,7 @@ Proof.
       exploit sd_determ_3. eauto. eapply STEP1. eauto. intros. inv H0; subst.
       do 2 eexists. split. right. split. eapply star_refl. econstructor 1. instantiate (1:=n). eauto.
       econstructor 5; eauto.
-Admitted.
+Qed.
 
 End FSIM_TO_BSIM.
 
@@ -2408,11 +2423,27 @@ Proof.
   exploit sd_initial_determ. eauto. eapply H. eauto. intros; subst.
   eexists. exists s2; auto. split; eauto. econstructor. eauto.
 - (* final states *)
-  admit.
+  intros.
+  assert (SAFE: safe L1 s1).
+  { unfold safe. intros. exploit star_inv; eauto.
+    intros [(A & B) | A]; subst; eauto.
+    inv A. exploit sd_final_nostep; eauto. contradiction. }
+  inv H.
+  exploit b2f_progress; eauto. intros TRANS; inv TRANS.
+  exploit star_inv. eapply H3. intros [(A & B) | A]; subst.
+  assert (r0 = r) by (eapply (sd_final_determ L1_determinate); eauto). subst r0.
+  esplit. split; eauto.
+  inv A. exploit sd_final_nostep. eauto. eapply H0. eauto. contradiction.
+  inv H3. exploit sd_final_nostep. eauto. eapply H0. eauto. contradiction.
+  inv H4. contradiction. exploit sd_final_nostep. eauto. eapply H0. eauto. contradiction.
+  inv H1. exploit sd_final_nostep. eauto. eapply H0. eauto. contradiction.
+  inv H1; cycle 1. exploit sd_final_nostep. eauto. eapply H0. eauto. contradiction.
+  unfold unsafe in H2. inv H2. exfalso. eapply H. eauto.
+  inv H2. exploit sd_final_determ. eauto. eapply H0. eauto. intros; subst.
+  esplit. split; eauto. eapply star_refl.
+  exploit sd_final_nostep. eauto. eapply H0. eauto. contradiction.
 - (* simulation *)
   eapply b2f_simulation_step; eauto.
 - (* symbols preserved *)
   exact (bsim_public_preserved BS).
-Admitted.
-
-    
+Qed.
